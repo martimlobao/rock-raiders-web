@@ -1,7 +1,7 @@
 import { VirtualFileSystem } from '../fileparser/VirtualFileSystem'
 import { CabFile } from '../fileparser/CabFile'
 import { SelectFilesProgress } from './SelectFilesProgress'
-import { cachePutData } from '../AssetCacheHelper'
+import { cachePutData, cacheGetData } from '../AssetCacheHelper'
 import { VirtualFile } from '../fileparser/VirtualFile'
 
 export class ExtractedFilesLoader {
@@ -98,20 +98,79 @@ export class ExtractedFilesLoader {
      * Loads the audio tracks from the extracted CDR files
      */
     private static async loadAudioTracks(vfs: VirtualFileSystem): Promise<void> {
+        console.log('🎵 Starting audio track loading...')
+
         // Load the extracted audio tracks (out02.cdr, out03.cdr, out04.cdr)
+        // These correspond to the audio tracks that were extracted from the CUE/BIN files
+        // The CUE/BIN parser adds audio tracks to the audioTracks array starting from index 0
+        // So out02.cdr becomes musictrack0, out03.cdr becomes musictrack1, etc.
         const audioTrackNames = ['out02.cdr', 'out03.cdr', 'out04.cdr']
 
         for (let i = 0; i < audioTrackNames.length; i++) {
             const trackName = audioTrackNames[i]
             try {
-                const audioBuffer = await this.loadBundledFileWithRetry(trackName, 1)
-                await cachePutData(`musictrack${i}`, audioBuffer)
-                console.log(`✅ Loaded audio track ${i + 1}: ${trackName}`)
+                console.log(`🔄 Loading audio track ${i + 1}: ${trackName}`)
+                const rawAudioBuffer = await this.loadBundledFileWithRetry(trackName, 1)
+                console.log(`📥 Raw audio data loaded: ${rawAudioBuffer.byteLength} bytes`)
+
+                // Convert raw CD audio data to WAV format (like the CUE/BIN parser does)
+                const wavBuffer = this.convertCdrToWav(rawAudioBuffer)
+                console.log(`🎼 Converted to WAV format: ${wavBuffer.byteLength} bytes`)
+
+                // Register with the correct name that the game expects
+                // Audio tracks are indexed from 0 in the audioTracks array
+                const musicTrackName = `musictrack${i}`
+                await cachePutData(musicTrackName, wavBuffer)
+                console.log(`✅ Successfully registered ${musicTrackName} (${wavBuffer.byteLength} bytes WAV)`)
+
+                // Verify the track was cached
+                const cachedTrack = await cacheGetData(musicTrackName)
+                if (cachedTrack) {
+                    console.log(`✅ Verified ${musicTrackName} is in cache: ${cachedTrack.byteLength} bytes`)
+                } else {
+                    console.error(`❌ Failed to verify ${musicTrackName} in cache`)
+                }
+
             } catch (error) {
-                console.warn(`⚠️ Could not load audio track ${trackName}, skipping:`, error)
+                console.error(`❌ Could not load audio track ${trackName}:`, error)
                 // Continue loading other tracks even if some fail
             }
         }
+
+        console.log('🎵 Audio track loading complete!')
+    }
+
+    /**
+     * Converts raw CD audio data (CDR) to WAV format
+     * This replicates the functionality of the CUE/BIN parser's readAudioEntry method
+     */
+    private static convertCdrToWav(rawAudioBuffer: ArrayBuffer): ArrayBuffer {
+        const headerLen = 44
+        const rawDataLength = rawAudioBuffer.byteLength
+        const wavBuffer = new ArrayBuffer(headerLen + rawDataLength)
+        const wavArray = new Uint8Array(wavBuffer)
+        const wavView = new DataView(wavBuffer)
+
+        // Write WAV header
+        const encoder = new TextEncoder()
+        wavArray.set(encoder.encode('RIFF'), 0) // RIFF header
+        wavView.setUint32(4, rawDataLength + 8 + 24 + 4, true) // length of file, starting from WAVE
+        wavArray.set(encoder.encode('WAVE'), 8)
+        wavArray.set(encoder.encode('fmt '), 12) // FORMAT header
+        wavView.setUint32(16, 16, true) // length of FORMAT header
+        wavView.setUint16(20, 1, true) // constant
+        wavView.setUint16(22, 2, true) // channels (stereo)
+        wavView.setUint32(24, 44100, true) // sample rate (44.1 kHz)
+        wavView.setUint32(28, 44100 * 4, true) // bytes per second
+        wavView.setUint16(32, 4, true) // bytes per sample
+        wavView.setUint16(34, 16, true) // bits per channel
+        wavArray.set(encoder.encode('data'), 36) // DATA header
+        wavView.setUint32(40, rawDataLength, true)
+
+        // Copy the raw audio data after the header
+        wavArray.set(new Uint8Array(rawAudioBuffer), headerLen)
+
+        return wavBuffer
     }
 
     /**
@@ -187,7 +246,7 @@ export class ExtractedFilesLoader {
                             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                         }
                     } catch (finalError) {
-                        const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+                        const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(finalError);
                         throw new Error(`Could not load bundled file ${filename}: ${errorMessage}`);
                     }
                 }

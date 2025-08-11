@@ -3,7 +3,7 @@ import { VFSEncoding, VirtualFileSystem } from '../fileparser/VirtualFileSystem'
 import { SelectFilesAccordion } from './SelectFilesAccordion'
 import { SelectFilesForm } from './SelectFilesForm'
 import { CabFile } from '../fileparser/CabFile'
-import { cachePutData } from '../AssetCacheHelper'
+import { cachePutData, cacheGetData } from '../AssetCacheHelper'
 import { VirtualFile } from '../fileparser/VirtualFile'
 import { IsoFileParser } from '../fileparser/IsoFileParser'
 import { CueFileParser } from '../fileparser/CueFileParser'
@@ -308,18 +308,22 @@ export class SelectFilesModal {
     private addExtractedFilesOption() {
         const extractedFilesPanel = document.createElement('div')
         const extractedFilesProgress = new SelectFilesProgress()
-        const extractedFilesForm = new SelectFilesForm('Start with extracted files (data1.hdr, data1.cab, audio tracks)', ['data1.hdr', 'data1.cab'], async (files: File[]) => {
-            if (files.length !== 2) throw new Error(`Unexpected number of files (${files.length}) given`)
+        const extractedFilesForm = new SelectFilesForm('Start with extracted files (data1.hdr, data1.cab, audio tracks)', ['data1.hdr', 'data1.cab', 'out02.cdr', 'out03.cdr', 'out04.cdr'], async (files: File[]) => {
+            if (files.length !== 5) throw new Error(`Unexpected number of files (${files.length}) given. Expected 5 files: data1.hdr, data1.cab, and 3 audio tracks.`)
             try {
                 extractedFilesPanel.replaceChildren(extractedFilesProgress.root)
                 const hdrBuffer = await files[0].arrayBuffer()
                 const cabBuffer = await files[1].arrayBuffer()
 
-                extractedFilesProgress.setProgress('Parsing CAB files...', 50, 100)
+                extractedFilesProgress.setProgress('Parsing CAB files...', 40, 100)
                 const cabFile = new CabFile(hdrBuffer, cabBuffer).parse()
 
-                extractedFilesProgress.setProgress('Loading all files from CAB...', 70, 100)
+                extractedFilesProgress.setProgress('Loading all files from CAB...', 60, 100)
                 const allFiles = await cabFile.loadAllFiles(extractedFilesProgress)
+
+                extractedFilesProgress.setProgress('Loading audio tracks...', 80, 100)
+                // Load the audio tracks from the selected files
+                await this.loadAudioTracksFromFiles(files.slice(2)) // Skip hdr and cab files
 
                 extractedFilesProgress.setProgress('Setting up virtual file system...', 90, 100)
                 const vfs = new VirtualFileSystem()
@@ -338,7 +342,75 @@ export class SelectFilesModal {
             }
         })
         extractedFilesPanel.appendChild(extractedFilesForm.root)
-        this.optionList.addOption('Start with extracted CAB files (data1.hdr, data1.cab) <b>(no music, fast loading)</b>:', extractedFilesPanel)
+        this.optionList.addOption('Start with extracted files (data1.hdr, data1.cab, out02.cdr, out03.cdr, out04.cdr) <b>(includes all audio tracks)</b>:', extractedFilesPanel)
+    }
+
+    /**
+     * Loads audio tracks from manually selected CDR files
+     */
+    private async loadAudioTracksFromFiles(audioFiles: File[]): Promise<void> {
+        for (let i = 0; i < audioFiles.length; i++) {
+            const file = audioFiles[i]
+            try {
+                console.log(`🔄 Loading audio track ${i + 1}: ${file.name}`)
+                const rawAudioBuffer = await file.arrayBuffer()
+                console.log(`📥 Raw audio data loaded: ${rawAudioBuffer.byteLength} bytes`)
+
+                // Convert raw CD audio data to WAV format
+                const wavBuffer = this.convertCdrToWav(rawAudioBuffer)
+                console.log(`🎼 Converted to WAV format: ${wavBuffer.byteLength} bytes`)
+
+                // Audio tracks are indexed from 0 in the audioTracks array
+                const musicTrackName = `musictrack${i}`
+                await cachePutData(musicTrackName, wavBuffer)
+                console.log(`✅ Successfully registered ${musicTrackName} (${wavBuffer.byteLength} bytes WAV)`)
+
+                // Verify the track was cached
+                const cachedTrack = await cacheGetData(musicTrackName)
+                if (cachedTrack) {
+                    console.log(`✅ Verified ${musicTrackName} is in cache: ${cachedTrack.byteLength} bytes`)
+                } else {
+                    console.error(`❌ Failed to verify ${musicTrackName} in cache`)
+                }
+
+            } catch (error) {
+                console.error(`❌ Could not load audio track ${file.name}:`, error)
+                // Continue loading other tracks even if some fail
+            }
+        }
+    }
+
+    /**
+     * Converts raw CD audio data (CDR) to WAV format
+     * This replicates the functionality of the CUE/BIN parser's readAudioEntry method
+     */
+    private convertCdrToWav(rawAudioBuffer: ArrayBuffer): ArrayBuffer {
+        const headerLen = 44
+        const rawDataLength = rawAudioBuffer.byteLength
+        const wavBuffer = new ArrayBuffer(headerLen + rawDataLength)
+        const wavArray = new Uint8Array(wavBuffer)
+        const wavView = new DataView(wavBuffer)
+
+        // Write WAV header
+        const encoder = new TextEncoder()
+        wavArray.set(encoder.encode('RIFF'), 0) // RIFF header
+        wavView.setUint32(4, rawDataLength + 8 + 24 + 4, true) // length of file, starting from WAVE
+        wavArray.set(encoder.encode('WAVE'), 8)
+        wavArray.set(encoder.encode('fmt '), 12) // FORMAT header
+        wavView.setUint32(16, 16, true) // length of FORMAT header
+        wavView.setUint16(20, 1, true) // constant
+        wavView.setUint16(22, 2, true) // channels (stereo)
+        wavView.setUint32(24, 44100, true) // sample rate (44.1 kHz)
+        wavView.setUint32(28, 44100 * 4, true) // bytes per second
+        wavView.setUint16(32, 4, true) // bytes per sample
+        wavView.setUint16(34, 16, true) // bits per channel
+        wavArray.set(encoder.encode('data'), 36) // DATA header
+        wavView.setUint32(40, rawDataLength, true)
+
+        // Copy the raw audio data after the header
+        wavArray.set(new Uint8Array(rawAudioBuffer), headerLen)
+
+        return wavBuffer
     }
 
     private async tryAutoStartBundledGame() {
