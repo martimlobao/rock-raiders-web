@@ -157,6 +157,9 @@ export class SelectFilesModal {
         // Add bundled game option (for standalone app)
         this.addBundledGameOption()
 
+        // Add extracted files option (for when you have extracted ISO and audio files)
+        this.addExtractedFilesOption()
+
         const cueBinFilesPanel = document.createElement('div')
         const cueBinFilesProgress = new SelectFilesProgress()
         const cueBinFilesForm = new SelectFilesForm('Start with CUE/BIN files', ['Rock Raiders.cue', 'Rock Raiders.bin'], async (files: File[]) => {
@@ -300,6 +303,42 @@ export class SelectFilesModal {
 
         // Add this as the first option
         this.optionList.addOption('🎮 <b>Bundled Game (Recommended for Standalone App)</b>', bundledGamePanel)
+    }
+
+    private addExtractedFilesOption() {
+        const extractedFilesPanel = document.createElement('div')
+        const extractedFilesProgress = new SelectFilesProgress()
+        const extractedFilesForm = new SelectFilesForm('Start with extracted files (data1.hdr, data1.cab, audio tracks)', ['data1.hdr', 'data1.cab'], async (files: File[]) => {
+            if (files.length !== 2) throw new Error(`Unexpected number of files (${files.length}) given`)
+            try {
+                extractedFilesPanel.replaceChildren(extractedFilesProgress.root)
+                const hdrBuffer = await files[0].arrayBuffer()
+                const cabBuffer = await files[1].arrayBuffer()
+
+                extractedFilesProgress.setProgress('Parsing CAB files...', 50, 100)
+                const cabFile = new CabFile(hdrBuffer, cabBuffer).parse()
+
+                extractedFilesProgress.setProgress('Loading all files from CAB...', 70, 100)
+                const allFiles = await cabFile.loadAllFiles(extractedFilesProgress)
+
+                extractedFilesProgress.setProgress('Setting up virtual file system...', 90, 100)
+                const vfs = new VirtualFileSystem()
+
+                // Register all files from the CAB
+                await Promise.all(allFiles.map(async (f) => {
+                    await cachePutData(f.fileName.toLowerCase(), f.toBuffer())
+                    vfs.registerFile(f)
+                }))
+
+                extractedFilesProgress.setProgress('Game loaded successfully!', 100, 100)
+                this.onFilesLoaded(vfs)
+            } finally {
+                extractedFilesPanel.replaceChildren(extractedFilesForm.root)
+                extractedFilesProgress.reset()
+            }
+        })
+        extractedFilesPanel.appendChild(extractedFilesForm.root)
+        this.optionList.addOption('Start with extracted CAB files (data1.hdr, data1.cab) <b>(no music, fast loading)</b>:', extractedFilesPanel)
     }
 
     private async tryAutoStartBundledGame() {

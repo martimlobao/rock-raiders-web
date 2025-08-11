@@ -3,24 +3,96 @@ const path = require('path');
 const fs = require('fs');
 
 const createWindow = () => {
+  console.log('🎯 Creating main window...');
+
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    backgroundColor: '#000000',
-    autoHideMenuBar: false, // Show menu bar for Command+Q
-    titleBarStyle: 'hiddenInset', // macOS-style title bar
+    width: 1200,
+    height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
-      webgl: true,
-      backgroundThrottling: false
-    }
+      preload: path.join(__dirname, 'preload.js')
+    },
+    icon: path.join(__dirname, 'assets', 'icon.icns'),
+    titleBarStyle: 'hiddenInset',
+    show: false,
+    alwaysOnTop: true // Force window to be visible initially
   });
+
+  console.log('🎯 Window created, show state:', win.isVisible());
+
+  // Open DevTools by default to see console output
+  win.webContents.openDevTools();
 
   // Load the built site (index.html) from the bundled assets
   win.loadFile(path.join(__dirname, 'app', 'index.html'));
+
+  // Show the window when it's ready
+  win.once('ready-to-show', () => {
+    // Center the window on the primary display
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.workAreaSize;
+    const winWidth = 1200;
+    const winHeight = 800;
+    const x = Math.round((width - winWidth) / 2);
+    const y = Math.round((height - winHeight) / 2);
+
+    win.setPosition(x, y);
+    win.show();
+    win.focus();
+    win.moveTop(); // Bring to front
+
+    // Flash the window to draw attention
+    win.flashFrame(true);
+    setTimeout(() => win.flashFrame(false), 2000);
+
+    console.log('🎯 Main window is now visible and focused');
+    console.log('🎯 Screen size:', { width, height });
+    console.log('🎯 Window centered at:', { x, y });
+    console.log('🎯 Window position:', win.getPosition());
+    console.log('🎯 Window size:', win.getSize());
+    console.log('🎯 Window bounds:', win.getBounds());
+    console.log('🎯 Window is visible:', win.isVisible());
+    console.log('🎯 Window is focused:', win.isFocused());
+
+    // Restore normal window behavior after showing
+    setTimeout(() => {
+      win.setAlwaysOnTop(false);
+      console.log('🎯 Restored normal window behavior (not always on top)');
+    }, 1000);
+  });
+
+  // Track window visibility changes
+  win.on('show', () => {
+    console.log('🎯 Window show event fired');
+  });
+
+  win.on('focus', () => {
+    console.log('🎯 Window focus event fired');
+  });
+
+  win.on('blur', () => {
+    console.log('🎯 Window blur event fired');
+  });
+
+  // Fallback: ensure window is visible after a delay
+  setTimeout(() => {
+    if (!win.isVisible()) {
+      win.show();
+      win.focus();
+      win.moveTop(); // Bring to front
+      console.log('🎯 Fallback: forcing window to be visible');
+    }
+
+    // Additional fallback: try to bring window to front
+    win.moveTop();
+    win.focus();
+    console.log('🎯 Final window state check:');
+    console.log('🎯 - Visible:', win.isVisible());
+    console.log('🎯 - Focused:', win.isFocused());
+    console.log('🎯 - Position:', win.getPosition());
+  }, 3000);
 
   // Auto-start the game after a short delay
   win.webContents.on('did-finish-load', () => {
@@ -126,6 +198,13 @@ app.whenReady().then(() => {
       let contentType = 'application/octet-stream';
       if (ext === '.cue') contentType = 'text/plain';
       if (ext === '.bin') contentType = 'application/octet-stream';
+      if (ext === '.hdr') contentType = 'application/octet-stream';
+      if (ext === '.cab') contentType = 'application/octet-stream';
+      if (ext === '.cdr') contentType = 'audio/x-cdr'; // CD audio track
+      if (ext === '.exe') contentType = 'application/x-msdownload';
+      if (ext === '.inf') contentType = 'text/plain';
+      if (ext === '.ini') contentType = 'text/plain';
+      if (ext === '.txt') contentType = 'text/plain';
 
       console.log(`✅ Serving bundled file: ${url} (${data.length} bytes)`);
 

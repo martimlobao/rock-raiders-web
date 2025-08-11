@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Audio Test</title>
+</head>
+<body>
+    <h1>Simple Audio Test</h1>
+    <div id="output"></div>
+
+    <script>
+        async function testAudio() {
+            const output = document.getElementById('output');
+
+            try {
+                // Test loading out02.cdr
+                console.log('Testing audio track loading...');
+                const response = await fetch('bundled://out02.cdr');
+
+                if (response.ok) {
+                    const data = await response.arrayBuffer();
+                    console.log('Audio track loaded:', data.byteLength, 'bytes');
+                    output.innerHTML = `<p>✅ Audio track loaded: ${data.byteLength} bytes</p>`;
+
+                    // Test WAV conversion
+                    const wav = convertToWav(data);
+                    console.log('WAV created:', wav.byteLength, 'bytes');
+                    output.innerHTML += `<p>✅ WAV created: ${wav.byteLength} bytes</p>`;
+
+                    // Test if it can be decoded
+                    try {
+                        const audioContext = new AudioContext();
+                        const audioBuffer = await audioContext.decodeAudioData(wav);
+                        console.log('Audio decoded successfully:', audioBuffer.duration, 'seconds');
+                        output.innerHTML += `<p>✅ Audio decoded: ${audioBuffer.duration.toFixed(2)} seconds</p>`;
+                    } catch (decodeError) {
+                        console.error('Audio decode failed:', decodeError);
+                        output.innerHTML += `<p>❌ Audio decode failed: ${decodeError.message}</p>`;
+                    }
+
+                } else {
+                    console.error('Failed to load audio track:', response.status);
+                    output.innerHTML = `<p>❌ Failed to load: ${response.status}</p>`;
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                output.innerHTML = `<p>❌ Error: ${error.message}</p>`;
+            }
+        }
+
+        function convertToWav(rawData) {
+            const headerLen = 44;
+            const dataLength = rawData.byteLength;
+            const wav = new ArrayBuffer(headerLen + dataLength);
+            const wavArray = new Uint8Array(wav);
+            const wavView = new DataView(wav);
+
+            // WAV header
+            const encoder = new TextEncoder();
+            wavArray.set(encoder.encode('RIFF'), 0);
+            wavView.setUint32(4, dataLength + 8 + 24 + 4, true);
+            wavArray.set(encoder.encode('WAVE'), 8);
+            wavArray.set(encoder.encode('fmt '), 12);
+            wavView.setUint32(16, 16, true);
+            wavView.setUint16(20, 1, true);
+            wavView.setUint16(22, 2, true);
+            wavView.setUint32(24, 44100, true);
+            wavView.setUint32(28, 44100 * 4, true);
+            wavView.setUint16(32, 4, true);
+            wavView.setUint16(34, 16, true);
+            wavArray.set(encoder.encode('data'), 36);
+            wavView.setUint32(40, dataLength, true);
+
+            // Copy audio data
+            wavArray.set(new Uint8Array(rawData), headerLen);
+
+            return wav;
+        }
+
+        // Run test when page loads
+        window.addEventListener('load', testAudio);
+    </script>
+</body>
+</html>

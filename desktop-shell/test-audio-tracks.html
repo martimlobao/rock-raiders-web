@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Audio Tracks Loading</title>
+</head>
+<body>
+    <h1>🎵 Test Audio Tracks Loading</h1>
+    <div id="status">Testing audio track loading...</div>
+    <div id="results"></div>
+
+    <script>
+        async function testAudioTracks() {
+            const status = document.getElementById('status');
+            const results = document.getElementById('results');
+
+            status.textContent = 'Testing audio track loading...';
+
+            // Test if audio tracks are accessible via the bundled protocol
+            const audioTrackNames = ['musictrack1', 'musictrack2', 'musictrack3'];
+
+            for (let i = 0; i < audioTrackNames.length; i++) {
+                const trackName = audioTrackNames[i];
+                try {
+                    console.log(`Testing ${trackName}...`);
+                    const response = await fetch(`bundled://${trackName}`);
+                    if (response.ok) {
+                        const data = await response.arrayBuffer();
+                        results.innerHTML += `<p>✅ ${trackName} loaded successfully (${data.byteLength} bytes)</p>`;
+                        console.log(`✅ ${trackName}: ${data.byteLength} bytes`);
+                    } else {
+                        results.innerHTML += `<p>❌ ${trackName} failed: ${response.status}</p>`;
+                        console.error(`❌ ${trackName}: ${response.status}`);
+                    }
+                } catch (error) {
+                    results.innerHTML += `<p>❌ ${trackName} error: ${error.message}</p>`;
+                    console.error(`❌ ${trackName}: ${error.message}`);
+                }
+            }
+
+            // Test the original CDR files too
+            results.innerHTML += '<h3>Testing Original CDR Files:</h3>';
+            const cdrFileNames = ['out02.cdr', 'out03.cdr', 'out04.cdr'];
+
+            for (let i = 0; i < cdrFileNames.length; i++) {
+                const fileName = cdrFileNames[i];
+                try {
+                    console.log(`Testing ${fileName}...`);
+                    const response = await fetch(`bundled://${fileName}`);
+                    if (response.ok) {
+                        const data = await response.arrayBuffer();
+                        results.innerHTML += `<p>✅ ${fileName} loaded successfully (${data.byteLength} bytes)</p>`;
+                        console.log(`✅ ${fileName}: ${data.byteLength} bytes`);
+                    } else {
+                        results.innerHTML += `<p>❌ ${fileName} failed: ${response.status}</p>`;
+                        console.error(`❌ ${fileName}: ${response.status}`);
+                    }
+                } catch (error) {
+                    results.innerHTML += `<p>❌ ${fileName} error: ${error.message}</p>`;
+                    console.error(`❌ ${fileName}: ${error.message}`);
+                }
+            }
+
+            status.textContent = 'Audio track testing complete!';
+        }
+
+        // Run the test when the page loads
+        window.addEventListener('load', testAudioTracks);
+    </script>
+</body>
+</html>
