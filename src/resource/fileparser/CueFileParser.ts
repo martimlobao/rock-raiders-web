@@ -19,31 +19,99 @@ export class CueFileParser {
         const cueEntries = this.hdrParser.parseEntries()
         if (VERBOSE) console.log('Entries found in CUE file', cueEntries)
         const binFileBuffer = this.binFileBuffer
+        console.log(`BIN file size: ${binFileBuffer.byteLength} bytes`)
+        console.log(`Expected sectors: ${Math.floor(binFileBuffer.byteLength / 2352)}`)
+
         for (let c = 0; c < cueEntries.length; c++) {
             const cueEntry = cueEntries[c]
             switch (cueEntry.track.type) {
                 case 'MODE1': {
-                    const chunkSize = cueEntry.track.bitrate
-                    if (!chunkSize) throw new Error('No chunk size given for track')
+                    const chunkSize = cueEntry.track.bitrate || 2352
                     if (chunkSize !== 2352) console.warn(`Expected bitrate 2352 but got (${chunkSize}) instead`)
+
                     const startSector = cueEntry.index.sector
-                    const startOffset = (16 + startSector) * chunkSize + 16
-                    const endSector = cueEntries[1].index.sector // TODO What if last entry?
-                    const endOffset = (16 + endSector - 1) * chunkSize + 16 - 64 * 1024
-                    const entryLength = (endSector - startSector) * 2048
+                    console.log(`Track ${cueEntry.track.number} MODE1: start sector ${startSector} (${cueEntry.index.minute}:${cueEntry.index.second}:${cueEntry.index.frame})`)
+                    // For MODE1/2352, each sector is 2352 bytes but contains 2048 bytes of data
+                    // The data starts at offset 16 within each sector
+                    const startOffset = startSector * chunkSize + 16
+
+                    // Find the next track to determine end boundary
+                    let endSector: number
+                    if (c + 1 < cueEntries.length) {
+                        endSector = cueEntries[c + 1].index.sector
+                        console.log(`Next track starts at sector ${endSector}`)
+                    } else {
+                        // Last track - estimate end based on file size
+                        endSector = Math.floor(binFileBuffer.byteLength / chunkSize)
+                        console.log(`Last track, estimated end sector: ${endSector}`)
+                    }
+
+                    // For MODE1 tracks, we need to find the actual end of the data
+                    // CD-ROM data tracks typically end before the next track starts
+                    // Let's look for a more reasonable boundary
+                    if (endSector - startSector > 10000) { // If more than 10k sectors, something's wrong
+                        console.warn(`Suspicious sector range: ${startSector} to ${endSector} (${endSector - startSector} sectors)`)
+                        // Try to find a more reasonable end by looking at the file size
+                        const maxSectors = Math.floor((binFileBuffer.byteLength - startOffset) / chunkSize)
+                        if (maxSectors < endSector - startSector) {
+                            console.log(`Adjusting end sector from ${endSector} to ${startSector + maxSectors} based on file size`)
+                            endSector = startSector + maxSectors
+                        }
+                    }
+
+                    console.log(`Track ${cueEntry.track.number}: sectors ${startSector} to ${endSector}, chunk size: ${chunkSize}`)
+                    console.log(`Start offset: ${startOffset}, end offset: ${endSector * chunkSize + 16}`)
+
+                    const endOffset = endSector * chunkSize + 16
+                    const entryLength = (endSector - startSector) * 2048 // 2048 bytes per sector of actual data
+
+                    console.log(`Reading ISO with chunk size ${chunkSize} from start offset ${startOffset} sector ${startSector} to end offset ${endOffset} sector ${endSector} and final iso length ${entryLength}`)
+
+                    // Validate that we're not trying to read past the end of the file
+                    if (endOffset > binFileBuffer.byteLength) {
+                        console.warn(`End offset ${endOffset} exceeds file size ${binFileBuffer.byteLength}, adjusting`)
+                        endSector = Math.floor((binFileBuffer.byteLength - 16) / chunkSize)
+                        const adjustedEntryLength = (endSector - startSector) * 2048
+                        console.log(`Adjusted to sectors ${startSector} to ${endSector}, length: ${adjustedEntryLength}`)
+                    }
+
                     const entryData = new Uint8Array(entryLength)
-                    console.log(`Reading ISO with chunk size ${cueEntry.track.bitrate} from start offset ${startOffset} sector ${startSector} to end offset ${endOffset} sector ${endSector} and final iso length ${entryLength}`)
-                    let writeOffset = 32 * 1024
-                    for (let c = startOffset; c < endOffset; c += chunkSize) {
-                        const isoBuffer = binFileBuffer.slice(c, c + 2048)
+                    let writeOffset = 0
+
+                    // Extract 2048 bytes from each 2352-byte sector
+                    for (let sector = startSector; sector < endSector; sector++) {
+                        const sectorOffset = sector * chunkSize + 16 // Skip 16-byte header
+                        if (sectorOffset + 2048 > binFileBuffer.byteLength) {
+                            console.warn(`Sector ${sector} would read past end of file, stopping`)
+                            break
+                        }
+                        const isoBuffer = binFileBuffer.slice(sectorOffset, sectorOffset + 2048)
+                        if (isoBuffer.byteLength !== 2048) {
+                            console.warn(`Sector ${sector}: expected 2048 bytes, got ${isoBuffer.byteLength}`)
+                        }
                         entryData.set(new Uint8Array(isoBuffer), writeOffset)
                         writeOffset += 2048
                     }
-                    isoFile = entryData.buffer
+
+                    // Adjust the final buffer size to match what we actually read
+                    const actualLength = writeOffset
+                    if (actualLength !== entryLength) {
+                        console.log(`Adjusting buffer size from ${entryLength} to ${actualLength} bytes`)
+                        isoFile = entryData.slice(0, actualLength).buffer
+                    } else {
+                        isoFile = entryData.buffer
+                    }
+
+                    console.log(`Extracted ISO buffer: ${isoFile.byteLength} bytes, expected: ${entryLength} bytes`)
+
+                    // Validate the extracted ISO data
+                    if (isoFile.byteLength < 32 * 1024) {
+                        console.error(`Extracted ISO too small: ${isoFile.byteLength} bytes, need at least 32KB`)
+                    }
                     break
                 }
                 case 'AUDIO': {
-                    const startOffset = cueEntries[c].index.sector * 2352
+                    const startOffset = cueEntry.index.sector * 2352
                     const endOffset = !!cueEntries[c + 1] ? cueEntries[c + 1].index.sector * 2352 : binFileBuffer.byteLength
                     const audioBuffer = this.readAudioEntry(binFileBuffer, startOffset, endOffset)
                     audioTracks.push(audioBuffer)
@@ -102,15 +170,35 @@ export class CueHdrFileParser {
         if (binFileParts.length !== 3) throw new Error(`Unexpected FILE line given! Expected "FILE "ROCKRAIDERS.bin" BINARY" but got "${binFileLine}" instead`)
         if (binFileParts[2].toUpperCase() !== 'BINARY') throw new Error(`Unexpected BIN file mode given! Expected BINARY got ${binFileParts[2]} instead`)
         const result: CueEntry[] = []
-        lines.forEach((line, index) => {
-            if (!line.toUpperCase().startsWith('TRACK ')) return
-            const indexLine = lines[index + 1]
-            if (!indexLine) throw new Error(`Missing INDEX line for given TRACK ${index}`)
+
+        // Parse tracks and their associated lines
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i]
+            if (!line.toUpperCase().startsWith('TRACK ')) continue
+
+            const track = this.parseTrackLine(line)
+            let index: CuePosition | undefined
+            let pregap: CuePosition | undefined
+
+            // Look ahead for INDEX and PREGAP lines
+            for (let j = i + 1; j < lines.length && !lines[j].toUpperCase().startsWith('TRACK '); j++) {
+                const nextLine = lines[j]
+                if (nextLine.toUpperCase().startsWith('INDEX ')) {
+                    index = this.parseIndexLine(nextLine)
+                } else if (nextLine.toUpperCase().startsWith('PREGAP ')) {
+                    pregap = this.parsePregapLine(nextLine)
+                }
+            }
+
+            if (!index) throw new Error(`Missing INDEX line for TRACK ${track.number}`)
+
             result.push({
-                track: this.parseTrackLine(line),
-                index: this.parseIndexLine(indexLine)
+                track,
+                index,
+                pregap
             })
-        })
+        }
+
         result.sort((l, r) => l.track.number - r.track.number)
         return result
     }
@@ -133,9 +221,23 @@ export class CueHdrFileParser {
         if (!line.startsWith('INDEX ')) throw new Error(`Invalid INDEX line "${line}" given!`)
         const parts = line.split(/\s+/)
         if (parts.length !== 3) throw new Error(`Unexpected INDEX line "${line}" given!`)
-        const posSplit = parts[2].split(':')
+        const timePart = parts[2]
+        const posSplit = timePart.split(':')
+        if (posSplit.length !== 3) throw new Error(`Invalid timestamp "${timePart}" in line "${line}"`)
         return {
-            // TODO Is it safe to ignore INDEX 00 aka pregap?
+            minute: Number(posSplit[0]),
+            second: Number(posSplit[1]),
+            frame: Number(posSplit[2]),
+            sector: Number(posSplit[0]) * 60 * 75 + Number(posSplit[1]) * 75 + Number(posSplit[2]), // 75 frames per second of audio
+        }
+    }
+
+    private parsePregapLine(line: string): CuePosition {
+        if (!line.startsWith('PREGAP ')) throw new Error(`Invalid PREGAP line "${line}" given!`)
+        const timePart = line.substring('PREGAP '.length).trim()
+        const posSplit = timePart.split(':')
+        if (posSplit.length !== 3) throw new Error(`Invalid timestamp "${timePart}" in line "${line}"`)
+        return {
             minute: Number(posSplit[0]),
             second: Number(posSplit[1]),
             frame: Number(posSplit[2]),
@@ -147,6 +249,7 @@ export class CueHdrFileParser {
 export interface CueEntry {
     track: CueTrack
     index: CuePosition
+    pregap?: CuePosition
 }
 
 export interface CueTrack {

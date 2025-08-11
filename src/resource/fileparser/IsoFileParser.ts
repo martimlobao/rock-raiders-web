@@ -15,6 +15,12 @@ export class IsoFileParser {
 
     async loadAllFiles(progress: SelectFilesProgress): Promise<VirtualFile[]> {
         console.time('Parsing ISO file directory entries')
+
+        // Validate buffer size
+        if (this.buffer.byteLength < 32 * 1024) {
+            throw new Error(`ISO buffer too small: ${this.buffer.byteLength} bytes, expected at least 32KB`)
+        }
+
         for (let offset = 32 * 1024; offset < this.buffer.byteLength; offset += 2048) { // skip first 32 kB for system area
             this.reader.seek(offset)
             const volumeDescriptorTypeCode = this.reader.read8()
@@ -22,8 +28,9 @@ export class IsoFileParser {
                 this.reader.seek(offset + 128)
                 this.logicalBlockSize = this.reader.read16()
                 if (this.logicalBlockSize !== 2048) console.warn(`Unexpected logical block size (${this.logicalBlockSize})`)
-                this.reader.seek(offset + 132)
+                this.reader.seek(offset + 156)
                 this.readDirectoryEntry(offset + 156, '') // start reading root directory entry
+                break // Found primary volume descriptor, stop searching
             } else if (volumeDescriptorTypeCode === VolumeDescriptorTypeCode.SUPPLEMENTARY_VOLUME_DESCRIPTOR) {
                 if (VERBOSE) console.warn('Parsing supplementary volume descriptor not yet implemented')
             } else if (volumeDescriptorTypeCode === VolumeDescriptorTypeCode.VOLUME_DESCRIPTOR_SET_TERMINATOR) {
