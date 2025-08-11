@@ -28,6 +28,10 @@ export class ScreenMaster {
         // in case topmost layer does not listen for event, it reaches game-canvas-container as fallback dispatch from here
         ;['pointermove', 'pointerdown', 'pointerup', 'pointerleave', 'keydown', 'keyup', 'keypress', 'wheel', 'mousemove', 'mouseleave'].forEach((eventType) => {
             HTML_GAME_CANVAS_CONTAINER.addEventListener(eventType, (event) => {
+                // Allow Cmd+Q to pass through to Electron main process for app quitting
+                if (eventType === 'keydown' && event instanceof KeyboardEvent && event.metaKey && event.key === 'q') {
+                    return // Don't stop propagation or dispatch, let it bubble up to Electron
+                }
                 event.stopPropagation()
                 this.dispatchEvent(event)
             })
