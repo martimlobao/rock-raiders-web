@@ -1,0 +1,34 @@
+{
+  "name": "rock-raiders-mac",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "com.yourdomain.rockraiders",
+    "mac": {
+      "category": "public.app-category.games",
+      "target": ["dmg","zip"]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      {
+        "from": "../dist",
+        "to": "app",
+        "filter": ["**/*"]
+      }
+    ],
+    "extraMetadata": {
+      "name": "Rock Raiders (Standalone)"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
