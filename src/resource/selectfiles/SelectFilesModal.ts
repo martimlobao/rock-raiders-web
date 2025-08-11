@@ -9,6 +9,7 @@ import { IsoFileParser } from '../fileparser/IsoFileParser'
 import { CueFileParser } from '../fileparser/CueFileParser'
 import { SelectFilesProgress } from './SelectFilesProgress'
 import { ZipFileParser } from '../fileparser/ZipFileParser'
+import { BundledGameLoader } from './BundledGameLoader'
 
 interface ZipPackConf {
     flag: string
@@ -71,6 +72,10 @@ export class SelectFilesModal {
         hints.appendChild(document.createElement('div')).innerText = 'Select an option below to start:'
         this.optionList = new SelectFilesAccordion()
         content.appendChild(this.optionList.root)
+
+        // Try to auto-start bundled game if available
+        this.tryAutoStartBundledGame()
+
         this.zipFilesPanel = document.createElement('div')
         this.zipFilesProgress = new SelectFilesProgress()
         this.btnContainer = this.zipFilesPanel.appendChild(document.createElement('div'))
@@ -148,6 +153,10 @@ export class SelectFilesModal {
             })
         })
         this.optionList.addOption('Use repacked game files hosted on <a href="https://archive.org/details/LEGORockRaiders-gamefiles-Eng">archive.org</a> <b>(one-click-setup, no music/videos)</b>:', this.zipFilesPanel)
+
+        // Add bundled game option (for standalone app)
+        this.addBundledGameOption()
+
         const cueBinFilesPanel = document.createElement('div')
         const cueBinFilesProgress = new SelectFilesProgress()
         const cueBinFilesForm = new SelectFilesForm('Start with CUE/BIN files', ['Rock Raiders.cue', 'Rock Raiders.bin'], async (files: File[]) => {
@@ -239,6 +248,76 @@ export class SelectFilesModal {
         })
         cabFilesPanel.appendChild(cabFilesForm.root)
         this.optionList.addOption('Use local CAB files, usually seen on CD with installer:', cabFilesPanel)
+    }
+
+    private addBundledGameOption() {
+        const bundledGamePanel = document.createElement('div')
+        const bundledGameProgress = new SelectFilesProgress()
+
+        // Create a button to load bundled game
+        const loadButton = document.createElement('button')
+        loadButton.innerText = '🎮 Load Bundled Game'
+        loadButton.style.cssText = `
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        `
+
+        loadButton.addEventListener('mouseenter', () => {
+            loadButton.style.transform = 'translateY(-2px)'
+            loadButton.style.boxShadow = '0 6px 12px rgba(0,0,0,0.3)'
+        })
+
+        loadButton.addEventListener('mouseleave', () => {
+            loadButton.style.transform = 'translateY(0)'
+            loadButton.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)'
+        })
+
+        loadButton.addEventListener('click', async () => {
+            try {
+                bundledGamePanel.replaceChildren(bundledGameProgress.root)
+                const vfs = await BundledGameLoader.loadBundledGame(bundledGameProgress)
+                this.onFilesLoaded(vfs)
+            } catch (error) {
+                console.error('Failed to load bundled game:', error)
+                bundledGamePanel.replaceChildren(loadButton)
+                // Show error message
+                const errorDiv = document.createElement('div')
+                errorDiv.style.cssText = 'color: red; margin-top: 10px; text-align: center;'
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                errorDiv.innerText = `Error: ${errorMessage}`
+                bundledGamePanel.appendChild(errorDiv)
+            }
+        })
+
+        bundledGamePanel.appendChild(loadButton)
+
+        // Add this as the first option
+        this.optionList.addOption('🎮 <b>Bundled Game (Recommended for Standalone App)</b>', bundledGamePanel)
+    }
+
+    private async tryAutoStartBundledGame() {
+        // Wait a bit for everything to load
+        setTimeout(async () => {
+            try {
+                // Check if we're in a standalone app environment
+                if (window.location.protocol === 'file:' || window.location.hostname === 'localhost') {
+                    console.log('Attempting to auto-start bundled game...')
+                    const vfs = await BundledGameLoader.loadBundledGame(this.zipFilesProgress)
+                    this.onFilesLoaded(vfs)
+                }
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                console.log('Auto-start failed, showing manual options:', errorMessage)
+                // Auto-start failed, show the modal normally
+            }
+        }, 1000)
     }
 
     static async loadFileFromUrl(url: string, progress: SelectFilesProgress): Promise<ArrayBuffer> {

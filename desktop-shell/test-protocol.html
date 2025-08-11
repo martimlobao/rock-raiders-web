@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Bundled Protocol</title>
+</head>
+<body>
+    <h1>Test Bundled Protocol</h1>
+    <div id="status">Testing...</div>
+    <div id="results"></div>
+
+    <script>
+        async function testBundledProtocol() {
+            const status = document.getElementById('status');
+            const results = document.getElementById('results');
+
+            status.textContent = 'Testing bundled protocol...';
+
+            try {
+                // Test CUE file
+                console.log('Testing bundled://ROCKRAIDERS.cue');
+                const cueResponse = await fetch('bundled://ROCKRAIDERS.cue');
+                if (cueResponse.ok) {
+                    const cueData = await cueResponse.text();
+                    results.innerHTML += '<p>✅ CUE file loaded via protocol (' + cueData.length + ' bytes)</p>';
+                    results.innerHTML += '<pre>' + cueData.substring(0, 200) + '...</pre>';
+                } else {
+                    results.innerHTML += '<p>❌ CUE file failed: ' + cueResponse.status + '</p>';
+                }
+            } catch (error) {
+                results.innerHTML += '<p>❌ CUE file error: ' + error.message + '</p>';
+            }
+
+            try {
+                // Test BIN file (just check if it loads, don't display content)
+                console.log('Testing bundled://ROCKRAIDERS.bin');
+                const binResponse = await fetch('bundled://ROCKRAIDERS.bin');
+                if (binResponse.ok) {
+                    const binData = await binResponse.arrayBuffer();
+                    results.innerHTML += '<p>✅ BIN file loaded via protocol (' + binData.byteLength + ' bytes)</p>';
+                } else {
+                    results.innerHTML += '<p>❌ BIN file failed: ' + binResponse.status + '</p>';
+                }
+            } catch (error) {
+                results.innerHTML += '<p>❌ BIN file error: ' + error.message + '</p>';
+            }
+
+            status.textContent = 'Test complete!';
+        }
+
+        // Run test when page loads
+        window.addEventListener('load', testBundledProtocol);
+    </script>
+</body>
+</html>

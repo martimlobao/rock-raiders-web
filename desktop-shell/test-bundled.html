@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Bundled Files</title>
+</head>
+<body>
+    <h1>Test Bundled Files Loading</h1>
+    <div id="status">Testing...</div>
+    <div id="results"></div>
+
+    <script>
+        async function testBundledFiles() {
+            const status = document.getElementById('status');
+            const results = document.getElementById('results');
+
+            status.textContent = 'Testing bundled files...';
+
+            try {
+                // Test if we're in Electron
+                if (window.env?.bundledServerPort) {
+                    status.textContent = `Electron detected, server port: ${window.env.bundledServerPort}`;
+
+                    // Test CUE file
+                    try {
+                        const cueResponse = await fetch(`http://localhost:${window.env.bundledServerPort}/ROCKRAIDERS.cue`);
+                        if (cueResponse.ok) {
+                            const cueData = await cueResponse.text();
+                            results.innerHTML += '<p>✅ CUE file loaded successfully (' + cueData.length + ' bytes)</p>';
+                            results.innerHTML += '<pre>' + cueData.substring(0, 200) + '...</pre>';
+                        } else {
+                            results.innerHTML += '<p>❌ CUE file failed: ' + cueResponse.status + '</p>';
+                        }
+                    } catch (error) {
+                        results.innerHTML += '<p>❌ CUE file error: ' + error.message + '</p>';
+                    }
+
+                    // Test BIN file
+                    try {
+                        const binResponse = await fetch(`http://localhost:${window.env.bundledServerPort}/ROCKRAIDERS.bin`);
+                        if (binResponse.ok) {
+                            const binData = await binResponse.arrayBuffer();
+                            results.innerHTML += '<p>✅ BIN file loaded successfully (' + binData.byteLength + ' bytes)</p>';
+                        } else {
+                            results.innerHTML += '<p>❌ BIN file failed: ' + binResponse.status + '</p>';
+                        }
+                    } catch (error) {
+                        results.innerHTML += '<p>❌ BIN file error: ' + error.message + '</p>';
+                    }
+
+                } else {
+                    status.textContent = 'Not in Electron, testing web fallback...';
+
+                    // Test web fallback
+                    try {
+                        const cueResponse = await fetch('./bundled/ROCKRAIDERS.cue');
+                        if (cueResponse.ok) {
+                            const cueData = await cueResponse.text();
+                            results.innerHTML += '<p>✅ CUE file loaded via web fallback (' + cueData.length + ' bytes)</p>';
+                        } else {
+                            results.innerHTML += '<p>❌ CUE file web fallback failed: ' + cueResponse.status + '</p>';
+                        }
+                    } catch (error) {
+                        results.innerHTML += '<p>❌ CUE file web fallback error: ' + error.message + '</p>';
+                    }
+                }
+
+            } catch (error) {
+                status.textContent = 'Test failed: ' + error.message;
+                results.innerHTML += '<p>❌ Test error: ' + error.message + '</p>';
+            }
+        }
+
+        // Run test when page loads
+        window.addEventListener('load', testBundledFiles);
+    </script>
+</body>
+</html>

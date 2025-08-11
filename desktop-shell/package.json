@@ -2,21 +2,36 @@
   "name": "rock-raiders-mac",
   "version": "0.1.0",
   "private": true,
+  "description": "Standalone macOS app for Rock Raiders Web game",
+  "author": "Rock Raiders Web Team",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --mac dmg"
+    "dev": "npm run build:game && electron .",
+    "build:game": "cd .. && npm run build",
+    "pack": "npm run build:game && electron-builder --dir",
+    "dist": "npm run build:game && electron-builder --mac dmg",
+    "dist:zip": "npm run build:game && electron-builder --mac zip",
+    "clean": "rm -rf dist node_modules"
   },
   "build": {
-    "appId": "com.yourdomain.rockraiders",
+    "appId": "com.rockraiders.standalone",
+    "productName": "Rock Raiders",
     "mac": {
       "category": "public.app-category.games",
-      "target": ["dmg","zip"]
+      "target": ["dmg", "zip"],
+      "icon": "assets/icon.icns",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist"
     },
     "files": [
       "main.js",
       "preload.js",
+      "assets/**/*",
+      "bundled/**/*",
       {
         "from": "../dist",
         "to": "app",
@@ -24,7 +39,11 @@
       }
     ],
     "extraMetadata": {
-      "name": "Rock Raiders (Standalone)"
+      "name": "Rock Raiders"
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
     }
   },
   "devDependencies": {
