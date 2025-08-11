@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, protocol } = require('electron');
+const { app, BrowserWindow, Menu, shell, protocol, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -11,7 +11,9 @@ const createWindow = () => {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      enableRemoteModule: false,
+      spellcheck: false
     },
     icon: path.join(__dirname, 'assets', 'icon.icns'),
     titleBarStyle: 'hiddenInset',
@@ -120,7 +122,7 @@ const createWindow = () => {
         { role: 'hideOthers' },
         { role: 'unhide' },
         { type: 'separator' },
-        { role: 'quit' } // This enables Command+Q
+        { role: 'quit', accelerator: 'Cmd+Q' } // Explicitly set accelerator
       ]
     },
     {
@@ -178,11 +180,27 @@ const createWindow = () => {
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
 
+  // Backup keyboard shortcut handler for Cmd+Q
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.control || input.meta) {
+      if (input.key === 'q' || input.key === 'Q') {
+        console.log('🎯 Cmd+Q detected via backup handler');
+        app.quit();
+      }
+    }
+  });
+
   // Improve perf: disable pinch zoom
   win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
 };
 
 app.whenReady().then(() => {
+  // Register global shortcut for Cmd+Q as backup
+  globalShortcut.register('Command+Q', () => {
+    console.log('🎯 Cmd+Q detected via global shortcut');
+    app.quit();
+  });
+
   // Register custom protocol for bundled files
   protocol.handle('bundled', (request) => {
     const url = request.url.replace('bundled://', '');
