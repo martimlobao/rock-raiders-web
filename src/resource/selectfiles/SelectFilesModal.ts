@@ -200,6 +200,78 @@ export class SelectFilesModal {
         })
         isoFilesPanel.appendChild(isoFilesForm.root)
         this.optionList.addOption('Use local ISO file, usually seen as CD image <b>(no music)</b>:', isoFilesPanel)
+
+        // Add new option for extracted ISO files and audio tracks
+        const extractedIsoPanel = document.createElement('div')
+        const extractedIsoProgress = new SelectFilesProgress()
+        const extractedIsoForm = new SelectFilesForm('Start with extracted game files and audio tracks', [
+            'data1.hdr',
+            'data1.cab',
+            'out02.wav',
+            'out03.wav',
+            'out04.wav'
+        ], async (files: File[]) => {
+            if (files.length !== 5) throw new Error(`Expected 5 files, got ${files.length}`)
+            try {
+                extractedIsoProgress.setProgress('Loading extracted game files...', 0, 100)
+
+                // Separate game data files from audio files
+                const gameDataFiles = files.filter(f => f.name === 'data1.hdr' || f.name === 'data1.cab')
+                const audioFiles = files.filter(f => f.name.match(/^out0[2-4]\.wav$/))
+
+                console.log('Game data files:', gameDataFiles.map(f => ({ name: f.name, size: f.size })))
+                console.log('Audio files:', audioFiles.map(f => ({ name: f.name, size: f.size })))
+
+                if (gameDataFiles.length !== 2) {
+                    throw new Error(`Expected 2 game data files (data1.hdr, data1.cab), got ${gameDataFiles.length}`)
+                }
+
+                if (audioFiles.length !== 3) {
+                    throw new Error(`Expected 3 audio files, got ${audioFiles.length}`)
+                }
+
+                // Load game data files using CAB file parser
+                extractedIsoProgress.setProgress('Loading game data files...', 20, 100)
+                const cabHeader = await gameDataFiles.find(f => f.name === 'data1.hdr')!.arrayBuffer()
+                const cabVolume = await gameDataFiles.find(f => f.name === 'data1.cab')!.arrayBuffer()
+
+                console.time('Parsing CAB files')
+                const cabFile = new CabFile(cabHeader, cabVolume).parse()
+                console.timeEnd('Parsing CAB files')
+
+                console.time('Unpack CAB files')
+                const allFiles = await cabFile.loadAllFiles(extractedIsoProgress)
+                console.timeEnd('Unpack CAB files')
+
+                // Create VFS and register all unpacked files
+                const vfs = new VirtualFileSystem()
+                await Promise.all(allFiles.map(async (f) => {
+                    await cachePutData(f.fileName.toLowerCase(), f.toBuffer())
+                    vfs.registerFile(f)
+                }))
+
+                // Load audio tracks
+                extractedIsoProgress.setProgress('Loading audio tracks...', 80, 100)
+                await Promise.all(audioFiles.map(async (audioFile, index) => {
+                    const audioBuffer = await audioFile.arrayBuffer()
+                    const trackNumber = index + 1
+                    const trackName = `musictrack${trackNumber}`
+
+                    // WAV files are already in the correct format, no conversion needed
+                    await cachePutData(trackName, audioBuffer)
+                    console.log(`Loaded audio track ${trackNumber}: ${trackName} (${audioBuffer.byteLength} bytes)`)
+                }))
+
+                extractedIsoProgress.setProgress('Complete!', 100, 100)
+                this.onFilesLoaded(vfs)
+            } finally {
+                extractedIsoPanel.replaceChildren(extractedIsoForm.root)
+                extractedIsoProgress.reset()
+            }
+        })
+        extractedIsoPanel.appendChild(extractedIsoForm.root)
+        this.optionList.addOption('Use extracted game files and audio tracks <b>(full features with music)</b>:', extractedIsoPanel)
+
         const wadFilesForm = new SelectFilesForm('Start with WAD files', ['RR0.wad', 'RR1.wad'], async (files: File[]) => {
             if (files.length !== 2) throw new Error(`Unexpected number of files (${files.length}) given`)
             const vfs = new VirtualFileSystem() // TODO Set encoding when starting from WAD

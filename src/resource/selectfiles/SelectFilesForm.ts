@@ -3,11 +3,13 @@ import { FileSelectComponent } from './FileSelectComponent'
 export class SelectFilesForm {
     readonly root: HTMLElement
 
-    constructor(btnText: string, fileNames: string[], onSubmit: (files: File[]) => Promise<void>) {
+    constructor(btnText: string, fileNames: (string | { name: string, isDirectory: boolean })[], onSubmit: (files: File[]) => Promise<void>) {
         this.root = document.createElement('form')
         this.root.classList.add('select-files-option')
         const fileSelectInputs = fileNames.map((fileName) => {
-            const fileSelect = new FileSelectComponent(fileName)
+            const isDirectory = typeof fileName === 'object' ? fileName.isDirectory : false
+            const name = typeof fileName === 'object' ? fileName.name : fileName
+            const fileSelect = new FileSelectComponent(name, isDirectory)
             this.root.appendChild(fileSelect.label)
             return fileSelect.input
         })
